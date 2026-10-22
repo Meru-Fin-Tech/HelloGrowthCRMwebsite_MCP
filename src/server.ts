@@ -21,10 +21,13 @@ import {
   ListToolsRequestSchema,
   ListResourcesRequestSchema,
   ReadResourceRequestSchema,
+  ListPromptsRequestSchema,
+  GetPromptRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 
 import { toolsByName } from "./tools/index.js";
-import { buildWellKnownManifest } from "./well-known.js";
+import { buildWellKnownManifest, buildServerCard, buildMcpLlmsTxt } from "./well-known.js";
+import { PROMPTS, getPrompt } from "./prompts.js";
 import {
   isAuthorized,
   isPrivileged,
@@ -83,7 +86,7 @@ export function buildServer(opts: { authorized?: boolean } = {}): Server { // NO
       version: SERVER_VERSION,
       description: SERVER_DESCRIPTION,
     },
-    { capabilities: { tools: {}, resources: {} } },
+    { capabilities: { tools: { listChanged: false }, resources: {}, prompts: { listChanged: false } } },
   );
 
   server.setRequestHandler(ListToolsRequestSchema, async () => {
@@ -157,6 +160,22 @@ export function buildServer(opts: { authorized?: boolean } = {}): Server { // NO
   }) as any);
 
   // ── MCP Resources ────────────────────────────────────────────────────────────
+
+  server.setRequestHandler(ListPromptsRequestSchema, async () => ({
+    prompts: PROMPTS.map(({ name, title, description, arguments: args }) => ({ name, title, description, arguments: args })),
+  }));
+
+  server.setRequestHandler(GetPromptRequestSchema, async (req) => {
+    const prompt = getPrompt(req.params.name);
+    if (!prompt) throw new Error(`Unknown prompt: ${req.params.name}`);
+    const args = (req.params.arguments ?? {}) as Record<string, string>;
+    const missing = prompt.arguments.filter((a) => a.required && !args[a.name]?.trim()).map((a) => a.name);
+    if (missing.length) throw new Error(`Missing required argument(s): ${missing.join(", ")}`);
+    return {
+      description: prompt.description,
+      messages: [{ role: "user" as const, content: { type: "text" as const, text: prompt.build(args) } }],
+    };
+  });
 
   server.setRequestHandler(ListResourcesRequestSchema, async () => ({
     resources: [...RESOURCES],
@@ -564,7 +583,7 @@ export async function runServer(): Promise<void> {
     res.setHeader("X-Frame-Options", "DENY");
     res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
 
-    if (url.pathname === "/sse") {
+    if (url.pathname === "/sse" || url.pathname === "/mcp") { // /mcp: alias — many clients guess it
       if (!(await limiter.allow(ip))) { sendRateLimited(res, ip); return; }
       await handleStreamableHttp(req, res);
       return;
@@ -792,11 +811,22 @@ export async function runServer(): Promise<void> {
           [
             "User-agent: *",
             "Allow: /$",
-            // Only /sse exists on this host; /mcp and /message never did.
+            // Protocol endpoints (/sse, and its /mcp alias) are not indexable content.
             "Disallow: /sse",
+            "Disallow: /mcp",
             "",
           ].join("\n"),
         );
+        return;
+      }
+
+      if (url.pathname === "/.well-known/mcp/server-card.json") {
+        send(200, "application/json; charset=utf-8", buildServerCard({ tools: toolsByName.size, resources: RESOURCES.length, prompts: PROMPTS.length }));
+        return;
+      }
+
+      if (url.pathname === "/llms.txt") {
+        send(200, "text/plain; charset=utf-8", buildMcpLlmsTxt());
         return;
       }
 
