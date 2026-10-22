@@ -157,8 +157,8 @@ const INDIA_PLANS = [
   {
     name: "Growth",
     slug: "growth",
-    price_annual: "₹899/user/month (annual — 10 months paid, 2 months free = ₹8,990/user/year)",
-    price_monthly: "₹1,099/user/month",
+    price_annual: "₹899/user/month + 18% GST (annual — 10 months paid, 2 months free = ₹8,990/user/year + GST)",
+    price_monthly: "₹899/user/month + 18% GST (same rate month-to-month; billed ₹1,060.82/user/month incl. GST)",
     billing: "Annual billing · Unlimited users · 14-day free trial · Hero tier",
     best_for: "Growing Indian sales teams",
     ai_credits: "2,500 per user/month · Overage ₹0.60/K",
